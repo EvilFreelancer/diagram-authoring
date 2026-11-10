@@ -73,7 +73,7 @@ Candidate (a skill under test), rendering checked fresh:
 ```bash
 mkdir -p runs/candidate
 # fill evals/prompt.md: {{CASE_PATH}}=evals/cases/agent-turn.md,
-# {{OUTPUT_DIR}}=runs/candidate, {{SKILL_PATH}=/path/to/candidate/skill
+# {{OUTPUT_DIR}}=runs/candidate, {{SKILL_PATH}}=/path/to/candidate/skill
 # give it to one fresh agent, then:
 python3 evals/verify.py runs/candidate --name agent-turn
 ```
