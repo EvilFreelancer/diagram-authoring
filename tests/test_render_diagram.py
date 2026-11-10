@@ -700,6 +700,21 @@ class RealBackwardWireTests(RealDiagramHarness):
                 render_diagram.render(source, output, scale=2)
             self.assertTrue(output.is_file())
 
+    def test_smooth_route_draws_a_cubic_bezier(self):
+        wire = '{from: "#a", to: "#b", fromSide: "right", toSide: "left", route: "smooth"}'
+        with tempfile.TemporaryDirectory() as tmp:
+            source = self.write_page(tmp, self.SIDE_BY_SIDE, wire)
+            dom = self.dump_dom(source, tmp)
+            paths = re.findall(
+                r'<path\b(?=[^>]*\bfill="none")[^>]*?\bd="([^"]+)"', dom
+            )
+            output = Path(tmp) / "diagram.png"
+            with contextlib.redirect_stdout(io.StringIO()):
+                render_diagram.render(source, output, scale=2)
+            self.assertTrue(output.is_file())
+        self.assertEqual(len(paths), 1)
+        self.assertRegex(paths[0], r" C[0-9]")
+
 
 class RealArrowSideTests(RealDiagramHarness):
     """A real Chromium proves diagram.js rejects an unsupported arrow side.

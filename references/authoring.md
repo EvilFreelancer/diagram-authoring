@@ -71,7 +71,7 @@ the element matching `to` (any CSS selector; a missing element throws):
 | `from`, `to` | required | selectors of the two elements |
 | `fromSide`, `toSide` | `right`, `left` | the side the wire leaves or enters: `top`, `right`, `bottom` or `left` only. A diagonal such as `top-left` or `bottom-right` is **not** a side and throws; there is no corner anchor |
 | `color` | `blue` | a palette name (`ink blue green gray amber purple red`) or a CSS color for the line; only palette names get an arrowhead - an arbitrary CSS color draws the line with **no arrowhead**, so use a named palette color whenever an arrowhead is needed |
-| `route` | `elbow` | `straight` or `elbow`; elbow runs along the first side's axis, turns, and finishes along the second's |
+| `route` | `elbow` | `straight`, `elbow` or `smooth`; smooth draws a cubic Bezier curve whose control points follow the exit and entry sides, useful for feedback paths that should not share orthogonal channels |
 | `bend` | `0.5` | 0..1, moves the elbow turn nearer the start or the end, so parallel elbows do not overlap. Applies only when both ends use parallel sides (both horizontal or both vertical); a mixed-axis L-shaped wire has a fixed corner and ignores `bend` |
 | `fromShift`, `toShift` | `0` | -0.5..0.5, moves the end along its side by a fraction of the side's length |
 | `dash` | off | dashed line |

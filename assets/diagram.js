@@ -230,10 +230,24 @@
     }
     if (!aBack && !bBack) {
       if (a.axis === "h") return [a, { x: b.x, y: a.y }, b];
-      return [a, { x: a.x, y: b.y }, b];
-    }
+    return [a, { x: a.x, y: b.y }, b];
+  }
+
     if (a.axis === "h") return outwardHV(a, b);
     return outwardVH(a, b);
+  }
+
+  function smoothPath(a, b) {
+    const distance = Math.hypot(b.x - a.x, b.y - a.y);
+    const control = Math.max(40, Math.min(180, distance * 0.35));
+    const c1 = { x: a.x, y: a.y };
+    const c2 = { x: b.x, y: b.y };
+    if (a.axis === "h") c1.x += a.dir * control;
+    else c1.y += a.dir * control;
+    if (b.axis === "h") c2.x += b.dir * control;
+    else c2.y += b.dir * control;
+    const point = (p) => p.x.toFixed(1) + "," + p.y.toFixed(1);
+    return `M${point(a)} C${point(c1)} ${point(c2)} ${point(b)}`;
   }
 
   // Shift and bend move an anchor or a turn by a fraction of a side or a
@@ -301,7 +315,12 @@
       if (b.axis === "h") b.x -= gap * -b.dir;
       else b.y -= gap * -b.dir;
       const pts = points(a, b, w.route, range("bend", w.bend, 0, 1));
-      const d = pts.map((p, i) => (i ? "L" : "M") + p.x.toFixed(1) + "," + p.y.toFixed(1)).join(" ");
+      const d =
+        w.route === "smooth"
+          ? smoothPath(a, b)
+          : pts
+              .map((p, i) => (i ? "L" : "M") + p.x.toFixed(1) + "," + p.y.toFixed(1))
+              .join(" ");
       const attrs = {
         d,
         fill: "none",
