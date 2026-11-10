@@ -471,8 +471,16 @@ class RealRenderTests(unittest.TestCase):
 
     This is the only test that starts a browser. It skips itself when no
     Chromium or Chrome binary exists, so a machine without one still
-    passes the suite.
+    passes the suite. It never renders onto the committed reference PNG:
+    every render goes to a temporary directory, and the committed file is
+    compared byte for byte before and after the render to prove the suite
+    leaves it alone. Missing required fonts are a failure, not a skip:
+    the renderer's own font check reports them, and no test here works
+    around it.
     """
+
+    SOURCE = ROOT / "examples" / "agent-turn.html"
+    REFERENCE = ROOT / "examples" / "agent-turn.png"
 
     def setUp(self):
         try:
@@ -480,15 +488,37 @@ class RealRenderTests(unittest.TestCase):
         except render_diagram.RenderError:
             self.skipTest("no Chromium or Chrome binary on this machine")
 
-    def test_example_renders_at_twice_css_size(self):
-        source = ROOT / "examples" / "agent-turn.html"
-        output = ROOT / "examples" / "agent-turn.png"
-        render_diagram.render(source, output, scale=2)
+    def render_fresh(self, tmp):
+        output = Path(tmp) / "agent-turn.png"
+        render_diagram.render(self.SOURCE, output, scale=2)
         self.assertTrue(output.is_file(), "the renderer wrote no PNG")
-        self.assertLessEqual(output.stat().st_size, 1_000_000)
-        width, height = render_diagram.png_dimensions(output)
-        self.assertEqual(width, 2400)
-        self.assertGreater(height, 0)
+        return output
+
+    def test_fresh_render_matches_the_committed_reference(self):
+        reference_size = render_diagram.png_dimensions(self.REFERENCE)
+        self.assertEqual(reference_size[0], 2400)
+        self.assertGreater(reference_size[1], 0)
+        self.assertLessEqual(self.REFERENCE.stat().st_size, 1_000_000)
+        with tempfile.TemporaryDirectory() as tmp:
+            fresh = self.render_fresh(tmp)
+            self.assertLessEqual(fresh.stat().st_size, 1_000_000)
+            self.assertEqual(
+                render_diagram.png_dimensions(fresh),
+                reference_size,
+                "a fresh render of the example no longer matches the committed "
+                "PNG; re-render examples/agent-turn.png from the current source",
+            )
+
+    def test_the_suite_never_rewrites_the_committed_reference(self):
+        before = self.REFERENCE.read_bytes()
+        with tempfile.TemporaryDirectory() as tmp:
+            self.render_fresh(tmp)
+        self.assertEqual(
+            self.REFERENCE.read_bytes(),
+            before,
+            "the smoke test must render into a temporary directory, never onto "
+            "the committed reference PNG",
+        )
 
 
 if __name__ == "__main__":
