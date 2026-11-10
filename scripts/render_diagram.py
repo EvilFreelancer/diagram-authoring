@@ -28,6 +28,7 @@ import sys
 import tempfile
 import re
 import zlib
+from html import unescape
 from pathlib import Path
 
 MAX_OUTPUT_BYTES = 1_000_000
@@ -56,7 +57,12 @@ BASE_FLAGS = [
 # data-height is stamped by diagram.js on the <html> element and --width
 # is declared on the body's style attribute; anchoring to those tags
 # keeps decoys in scripts, styles and nested elements from being read.
+# When wires() throws, diagram.js stamps data-diagram-error instead, so
+# the page's own error is what gets reported.
 HTML_HEIGHT_RE = re.compile(r'<html\b[^>]*\bdata-height=["\'](\d+)["\']', re.IGNORECASE)
+HTML_ERROR_RE = re.compile(
+    r'<html\b[^>]*\bdata-diagram-error=["\']([^"\']*)["\']', re.IGNORECASE
+)
 BODY_WIDTH_RE = re.compile(
     r'<body\b[^>]*\bstyle=["\'][^"\']*--width\s*:\s*(\d+)px', re.IGNORECASE
 )
@@ -77,8 +83,19 @@ def read_dimensions(dom):
 
     The height must have been recorded by diagram.js (a wires([...])
     call) on the html element; the width is the body's declared
-    --width and falls back to DEFAULT_WIDTH when absent.
+    --width and falls back to DEFAULT_WIDTH when absent. When the page
+    stamped data-diagram-error instead, that message is the failure.
     """
+    error_match = HTML_ERROR_RE.search(dom)
+    if error_match:
+        detail = unescape(error_match.group(1)).strip()
+        raise RenderError(
+            "the page reported a diagram error instead of a measured "
+            f"height: {detail}; fix the source and render again"
+            if detail
+            else "the page reported a diagram error instead of a "
+            "measured height; check the source's wires() call"
+        )
     height_match = HTML_HEIGHT_RE.search(dom)
     if not height_match:
         raise RenderError(

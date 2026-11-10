@@ -30,10 +30,14 @@
           <small>terminal, ACP client</small>
         </div>
       </div>
-      <div style="display: flex; justify-content: center; margin-top: 16px">
+      <div class="row" style="justify-content: center; gap: 90px; margin-top: 16px">
         <div class="box core b" id="sess">
           Session manager
           <small>one store, one turn lock per session</small>
+        </div>
+        <div class="box purple b" id="cast">
+          Broadcast
+          <small>the answer streams to every surface</small>
         </div>
       </div>
     </div>
@@ -42,8 +46,12 @@
 
     <div class="panel">
       <div class="title">2. The agent loop runs</div>
-      <div class="row" style="align-items: center; justify-content: center; gap: 70px">
-        <div class="box core b" id="agent" style="min-width: 180px; text-align: center">
+      <div class="row" style="align-items: center; justify-content: center; gap: 60px">
+        <div class="box amber b" id="rules">
+          Rules &amp; skills
+          <small>operator-authored, read every turn</small>
+        </div>
+        <div class="box core b" id="agent" style="min-width: 150px; text-align: center">
           Agent
           <small>ReAct loop, tool wiring</small>
         </div>
@@ -96,10 +104,15 @@
         { from: "#tg", to: "#sess", fromSide: "bottom", toSide: "top", color: "amber" },
         { from: "#cli", to: "#sess", fromSide: "bottom", toSide: "top", color: "amber", bend: 0.6 },
         { from: "#sess", to: "#agent", fromSide: "bottom", toSide: "top", color: "blue", label: "runs a turn" },
+        { from: "#agent", to: "#rules", fromSide: "left", toSide: "right", color: "amber", label: "reads" },
         { from: "#agent", to: "#llm", color: "blue", label: "asks" },
         { from: "#agent", to: "#tools", color: "blue", label: "calls" },
         { from: "#agent", to: "#mcp", color: "purple", label: "calls" },
         { from: "#agent", to: "#stored", fromSide: "bottom", toSide: "top", color: "green", label: "persists", bend: 0.6 },
+        { from: "#stored", to: "#cast", fromSide: "top", toSide: "right", color: "purple", label: "streams back" },
+        { from: "#cast", to: "#webui", fromSide: "top", toSide: "bottom", color: "purple", bend: 0.25 },
+        { from: "#cast", to: "#tg", fromSide: "top", toSide: "bottom", color: "purple", bend: 0.4 },
+        { from: "#cast", to: "#cli", fromSide: "top", toSide: "bottom", color: "purple", bend: 0.3 },
         { from: "#wake", to: "#agent", fromSide: "top", toSide: "left", color: "amber", dash: true, label: "wakes", toShift: 0 },
       ]);
     </script>

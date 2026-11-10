@@ -10,6 +10,7 @@ binary exists on this machine.
 import contextlib
 import io
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -121,6 +122,34 @@ class ReadDimensionsTests(unittest.TestCase):
     def test_rejects_zero_width(self):
         with self.assertRaisesRegex(render_diagram.RenderError, "positive"):
             render_diagram.read_dimensions('<html data-height="600"><body style="--width: 0px">')
+
+    def test_page_error_is_reported_instead_of_the_generic_wires_message(self):
+        # diagram.js stamps data-diagram-error when wires() throws, so the
+        # renderer can say what actually went wrong in the page.
+        dom = (
+            '<html data-diagram-error="diagram: invalid side '
+            "&quot;top-left&quot; - use one of left, top, right, bottom\">"
+        )
+        with self.assertRaisesRegex(render_diagram.RenderError, "top-left"):
+            render_diagram.read_dimensions(dom)
+
+    def test_page_error_wins_over_a_missing_height(self):
+        dom = '<html data-diagram-error="diagram: no element for #gone">'
+        with self.assertRaisesRegex(render_diagram.RenderError, "#gone"):
+            render_diagram.read_dimensions(dom)
+
+    def test_page_error_survives_other_attributes_on_the_html_tag(self):
+        dom = (
+            '<html lang="en" data-diagram-error="diagram: bend must be '
+            'between 0 and 1, got 2">'
+        )
+        with self.assertRaisesRegex(render_diagram.RenderError, "bend"):
+            render_diagram.read_dimensions(dom)
+
+    def test_page_error_does_not_mask_a_missing_wires_call(self):
+        # No error stamped and no height either: the generic hint stays.
+        with self.assertRaisesRegex(render_diagram.RenderError, "wires"):
+            render_diagram.read_dimensions("<html><body></body></html>")
 
 
 class PixelDimensionsTests(unittest.TestCase):
@@ -522,19 +551,12 @@ class RealRenderTests(unittest.TestCase):
         )
 
 
-class RealArrowSideTests(unittest.TestCase):
-    """A real Chromium proves diagram.js rejects an unsupported arrow side.
+class RealDiagramHarness(unittest.TestCase):
+    """Renders a two-box diagram with the real diagram.js in a browser.
 
-    diagram.js anchors an arrowhead on one of four sides only. A diagonal
-    such as "top-left" used to fall back to a default silently, so the
-    arrows came out wrong while the render still reported success. The
-    browser now throws inside wires(), settle() never stamps data-height,
-    and the renderer's DOM-dump pass fails with the "no data-height"
-    error. The four valid sides must still render. This is the executable
-    counterpart to the static check in evals/verify.py.
-
-    Like RealRenderTests it starts a browser and skips itself when none is
-    installed.
+    Shared by the real-browser suites below: it copies the shipped assets
+    beside the source, so the page exercises the very diagram.js under
+    test, and skips itself when no Chromium or Chrome binary exists.
     """
 
     CSS = ROOT / "assets" / "diagram.css"
@@ -558,20 +580,145 @@ class RealArrowSideTests(unittest.TestCase):
         except render_diagram.RenderError:
             self.skipTest("no Chromium or Chrome binary on this machine")
 
-    def write_diagram(self, tmp, sides):
+    def write_diagram(self, tmp, fields):
         # Copy the real assets beside the source so the page loads the very
         # diagram.js under test, exactly as a candidate output directory does.
         shutil.copy(self.CSS, Path(tmp) / "diagram.css")
         shutil.copy(self.JS, Path(tmp) / "diagram.js")
         source = Path(tmp) / "diagram.html"
-        source.write_text(self.TEMPLATE % sides, encoding="utf-8")
+        source.write_text(self.TEMPLATE % fields, encoding="utf-8")
         return source
 
+
+class RealBackwardWireTests(RealDiagramHarness):
+    """A real Chromium proves backward wires leave their sides outward.
+
+    With the default right -> left sides and the target LEFT of the
+    source, the elbow's first segment used to travel back through the
+    source box. The route now leaves each backward side outward before
+    it turns; the checks below read the drawn SVG path out of the dumped
+    DOM and assert that geometry directly.
+    """
+
+    # Two boxes side by side: #a on the left, #b on the right.
+    SIDE_BY_SIDE = (
+        '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+        '<link rel="stylesheet" href="diagram.css">'
+        '<script src="diagram.js"></script></head>'
+        '<body style="--width: 400px">'
+        '<div class="row" style="display:flex;gap:160px;align-items:center">'
+        '<div class="box blue" id="a" style="width:120px;height:60px">A</div>'
+        '<div class="box green" id="b" style="width:120px;height:60px">B</div>'
+        "</div>"
+        "<script>wires([%s]);</script></body></html>"
+    )
+
+    # Two boxes stacked: #a on top, #b below.
+    STACKED = (
+        '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+        '<link rel="stylesheet" href="diagram.css">'
+        '<script src="diagram.js"></script></head>'
+        '<body style="--width: 400px">'
+        '<div class="box blue" id="a" style="width:120px;height:60px">A</div>'
+        '<div class="box green" id="b" style="width:120px;height:60px;'
+        'margin-top:80px">B</div>'
+        "<script>wires([%s]);</script></body></html>"
+    )
+
+    def write_page(self, tmp, template, wire):
+        shutil.copy(self.CSS, Path(tmp) / "diagram.css")
+        shutil.copy(self.JS, Path(tmp) / "diagram.js")
+        source = Path(tmp) / "diagram.html"
+        source.write_text(template % wire, encoding="utf-8")
+        return source
+
+    def dump_dom(self, source, tmp):
+        # The same flags the renderer uses for its own DOM-dump pass.
+        return render_diagram._run_browser(
+            [render_diagram.resolve_browser()]
+            + render_diagram.BASE_FLAGS
+            + [
+                f"--user-data-dir={Path(tmp) / 'dom-profile'}",
+                "--window-size=400,800",
+                "--dump-dom",
+                render_diagram._source_uri(source),
+            ],
+            "DOM dump",
+        )
+
+    @staticmethod
+    def wire_segments(dom):
+        # The drawn wires are the fill="none" paths; the marker triangles
+        # inside <defs> are not.
+        ds = re.findall(
+            r'<path\b(?=[^>]*\bfill="none")[^>]*?\bd="([^"]+)"', dom
+        )
+        segs = []
+        for d in ds:
+            nums = [float(n) for n in re.findall(r"-?\d+(?:\.\d+)?", d)]
+            segs.append(
+                [(nums[i], nums[i + 1]) for i in range(0, len(nums), 2)]
+            )
+        return segs
+
+    def test_backward_horizontal_first_segment_leaves_outward(self):
+        # #b sits on the right and wires to #a on its left through its
+        # RIGHT side: the first segment must travel right, never left
+        # back across the source box.
+        wire = '{from: "#b", to: "#a", fromSide: "right", toSide: "left"}'
+        with tempfile.TemporaryDirectory() as tmp:
+            source = self.write_page(tmp, self.SIDE_BY_SIDE, wire)
+            segs = self.wire_segments(self.dump_dom(source, tmp))
+        self.assertEqual(len(segs), 1)
+        (x0, y0), (x1, y1) = segs[0][0], segs[0][1]
+        self.assertGreater(x1, x0)
+        self.assertAlmostEqual(y1, y0, places=1)
+
+    def test_backward_vertical_first_segment_leaves_outward(self):
+        # #b sits below #a and wires up through its BOTTOM side: the
+        # first segment must travel down, never up through the source.
+        wire = '{from: "#b", to: "#a", fromSide: "bottom", toSide: "top"}'
+        with tempfile.TemporaryDirectory() as tmp:
+            source = self.write_page(tmp, self.STACKED, wire)
+            segs = self.wire_segments(self.dump_dom(source, tmp))
+        self.assertEqual(len(segs), 1)
+        (x0, y0), (x1, y1) = segs[0][0], segs[0][1]
+        self.assertGreater(y1, y0)
+        self.assertAlmostEqual(x1, x0, places=1)
+
+    def test_forward_horizontal_wire_still_renders(self):
+        # Same-height boxes left to right keep the plain straight wire.
+        wire = '{from: "#a", to: "#b", fromSide: "right", toSide: "left"}'
+        with tempfile.TemporaryDirectory() as tmp:
+            source = self.write_page(tmp, self.SIDE_BY_SIDE, wire)
+            segs = self.wire_segments(self.dump_dom(source, tmp))
+            self.assertEqual(len(segs), 1)
+            (x0, _), (x1, _) = segs[0][0], segs[0][-1]
+            self.assertGreater(x1, x0)
+            output = Path(tmp) / "diagram.png"
+            with contextlib.redirect_stdout(io.StringIO()):
+                render_diagram.render(source, output, scale=2)
+            self.assertTrue(output.is_file())
+
+
+class RealArrowSideTests(RealDiagramHarness):
+    """A real Chromium proves diagram.js rejects an unsupported arrow side.
+
+    diagram.js anchors an arrowhead on one of four sides only. A diagonal
+    such as "top-left" used to fall back to a default silently, so the
+    arrows came out wrong while the render still reported success. The
+    browser now throws inside wires(), settle() catches the error and
+    stamps data-diagram-error on <html> instead of data-height, and the
+    renderer's DOM-dump pass fails with the page's own message naming the
+    offending value. The four valid sides must still render. This is the
+    executable counterpart to the static check in evals/verify.py.
+    """
+
     def test_invalid_diagonal_side_fails_the_render(self):
-        for sides in (
-            'fromSide: "top-left"',
-            'toSide: "top-right"',
-            'fromSide: "bottom-left", toSide: "bottom-right"',
+        for sides, bad in (
+            ('fromSide: "top-left"', "top-left"),
+            ('toSide: "top-right"', "top-right"),
+            ('fromSide: "bottom-left", toSide: "bottom-right"', "bottom-left"),
         ):
             with self.subTest(sides=sides):
                 with tempfile.TemporaryDirectory() as tmp:
@@ -579,9 +726,10 @@ class RealArrowSideTests(unittest.TestCase):
                     output = Path(tmp) / "diagram.png"
                     with self.assertRaises(render_diagram.RenderError) as ctx:
                         render_diagram.render(source, output, scale=2)
-                    # The throw inside wires() means data-height is never
-                    # stamped, so the DOM-dump pass is what fails.
-                    self.assertIn("data-height", str(ctx.exception))
+                    # The throw inside wires() is stamped as
+                    # data-diagram-error, and the DOM-dump pass reports
+                    # that message, so the bad value itself is named.
+                    self.assertIn(bad, str(ctx.exception))
                     self.assertFalse(
                         output.exists(),
                         "an invalid side must not leave a rendered PNG behind",
@@ -594,6 +742,56 @@ class RealArrowSideTests(unittest.TestCase):
                     source = self.write_diagram(
                         tmp, f'fromSide: "{side}", toSide: "{side}"'
                     )
+                    output = Path(tmp) / "diagram.png"
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        render_diagram.render(source, output, scale=2)
+                    width, height = render_diagram.png_dimensions(output)
+                    self.assertEqual(width, 800)  # 400 CSS px at scale 2
+                    self.assertGreater(height, 0)
+
+
+class RealWireRangeTests(RealDiagramHarness):
+    """A real Chromium proves diagram.js enforces the numeric wire ranges.
+
+    fromShift/toShift are fractions of a box side (-0.5..0.5) and bend a
+    fraction of the span (0..1). Outside those ranges the geometry is
+    silently wrong, so diagram.js throws, the page stamps
+    data-diagram-error, and the render reports the value that was used.
+    """
+
+    def test_out_of_range_values_fail_the_render(self):
+        for field, bad in (
+            ("fromShift: -0.6", "-0.6"),
+            ("fromShift: 2", "2"),
+            ("toShift: 0.7", "0.7"),
+            ("toShift: -1", "-1"),
+            ("bend: -0.1", "-0.1"),
+            ("bend: 1.5", "1.5"),
+        ):
+            with self.subTest(field=field):
+                with tempfile.TemporaryDirectory() as tmp:
+                    source = self.write_diagram(tmp, field)
+                    output = Path(tmp) / "diagram.png"
+                    with self.assertRaises(render_diagram.RenderError) as ctx:
+                        render_diagram.render(source, output, scale=2)
+                    self.assertIn(bad, str(ctx.exception))
+                    self.assertFalse(
+                        output.exists(),
+                        "an out-of-range value must not leave a PNG behind",
+                    )
+
+    def test_boundary_values_render(self):
+        for field in (
+            "fromShift: -0.5",
+            "fromShift: 0.5",
+            "toShift: -0.5",
+            "toShift: 0.5",
+            "bend: 0",
+            "bend: 1",
+        ):
+            with self.subTest(field=field):
+                with tempfile.TemporaryDirectory() as tmp:
+                    source = self.write_diagram(tmp, field)
                     output = Path(tmp) / "diagram.png"
                     with contextlib.redirect_stdout(io.StringIO()):
                         render_diagram.render(source, output, scale=2)

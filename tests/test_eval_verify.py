@@ -202,6 +202,54 @@ class RemoteAssetTests(unittest.TestCase):
             with self.assertRaisesRegex(verify.VerifyError, "remote"):
                 run_verify(out)
 
+    def test_remote_image_is_rejected(self):
+        html = VALID_HTML.replace(
+            "</body>",
+            '<img src="https://cdn.example.com/logo.png" /></body>',
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            out = make_candidate(tmp, html=html)
+            with self.assertRaisesRegex(verify.VerifyError, "remote"):
+                run_verify(out)
+
+    def test_remote_link_element_is_rejected(self):
+        # <link href> fetches a resource (stylesheet, icon, preload), so
+        # a remote one is an asset reference even when it is no stylesheet.
+        html = VALID_HTML.replace(
+            "</head>",
+            '<link rel="icon" href="https://cdn.example.com/favicon.ico" />'
+            "</head>",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            out = make_candidate(tmp, html=html)
+            with self.assertRaisesRegex(verify.VerifyError, "remote"):
+                run_verify(out)
+
+    def test_ordinary_hyperlink_is_not_an_asset(self):
+        # <a href> loads nothing: it only navigates when the reader clicks
+        # it, so a remote link in the prose is not a remote asset.
+        html = VALID_HTML.replace(
+            "</body>",
+            '<p>See <a href="https://example.com/spec">the spec</a>.</p>'
+            "</body>",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            out = make_candidate(tmp, html=html)
+            lines = run_verify(out)
+            self.assertTrue(all(l.startswith("PASS") for l in lines))
+
+    def test_remote_stylesheet_in_a_style_block_is_rejected(self):
+        # CSS url() loads the resource at parse time: always an asset.
+        html = VALID_HTML.replace(
+            "</head>",
+            "<style>body{background:url(https://cdn.example.com/bg.png)}"
+            "</style></head>",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            out = make_candidate(tmp, html=html)
+            with self.assertRaisesRegex(verify.VerifyError, "remote"):
+                run_verify(out)
+
 
 class CyrillicTests(unittest.TestCase):
     def test_cyrillic_visible_text_is_rejected(self):
@@ -304,6 +352,17 @@ class ArrowSideTests(unittest.TestCase):
         message = str(ctx.exception)
         for direction in ("top", "right", "bottom", "left"):
             self.assertIn(direction, message)
+
+    def test_uppercase_side_is_rejected(self):
+        # diagram.js accepts only the lowercase sides; the verifier must
+        # not be more permissive than the renderer it checks against.
+        for side in ("TOP", "Left", "BOTTOM"):
+            with self.subTest(side=side):
+                html = self._html_with_sides(side, "top")
+                with tempfile.TemporaryDirectory() as tmp:
+                    out = make_candidate(tmp, html=html)
+                    with self.assertRaisesRegex(verify.VerifyError, side):
+                        run_verify(out)
 
 
 class PngContractTests(unittest.TestCase):
@@ -413,6 +472,43 @@ class FreshRenderTests(unittest.TestCase):
             (out / "agent-turn.png").write_bytes(make_png(2400, 999))
             with self.assertRaisesRegex(verify.VerifyError, "999"):
                 verify.verify(out, name="agent-turn", skip_render=False)
+
+    def test_same_dimensions_different_content_fails(self):
+        # The stale-PNG hole the dimension comparison misses: edit a
+        # visible label without moving the layout, so the fresh render is
+        # still 2400x1790 but the bytes no longer match the candidate.
+        with tempfile.TemporaryDirectory() as tmp:
+            out = example_copy(tmp)
+            render_diagram.render(
+                out / "agent-turn.html", out / "agent-turn.png", scale=2
+            )
+            html_path = out / "agent-turn.html"
+            html_path.write_text(
+                html_path.read_text(encoding="utf-8").replace(
+                    "<h1>A Coddy agent turn</h1>",
+                    "<h1>How one Coddy agent turn travels</h1>",
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(verify.VerifyError, "content differs"):
+                verify.verify(out, name="agent-turn", skip_render=False)
+
+    def test_unchanged_example_is_byte_identical_to_a_fresh_render(self):
+        # The happy path of the content check: a candidate produced by
+        # rendering the shipped HTML is accepted byte for byte.
+        with tempfile.TemporaryDirectory() as tmp:
+            out = example_copy(tmp)
+            candidate = render_diagram.render(
+                out / "agent-turn.html", out / "agent-turn.png", scale=2
+            )
+            lines = verify.verify(out, name="agent-turn", skip_render=False)
+            self.assertTrue(any("render" in line.lower() for line in lines))
+            self.assertEqual(
+                candidate.read_bytes(),
+                (ROOT / "examples" / "agent-turn.png").read_bytes(),
+                "a fresh render of the example must equal the committed PNG "
+                "byte for byte, or the content check rejects the reference",
+            )
 
 
 if __name__ == "__main__":

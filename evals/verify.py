@@ -19,8 +19,9 @@ Checks, in order:
   6. the PNG is a valid PNG under 1 MB whose actual width is exactly
      twice the declared CSS width and whose height is positive;
   7. unless --skip-render, the HTML is re-rendered into a temporary
-     directory with scripts/render_diagram.py and the fresh dimensions
-     must match the candidate PNG.
+     directory with scripts/render_diagram.py and the fresh PNG must
+     match the candidate: dimensions first, then byte for byte, so a
+     stale image with unchanged geometry is still caught.
 
 Usage:
     python3 evals/verify.py OUTPUT_DIR [--name NAME] [--skip-render]
@@ -30,6 +31,7 @@ actionable message to stderr and exits 1.
 """
 
 import argparse
+import hashlib
 import io
 import re
 import sys
@@ -55,7 +57,15 @@ BODY_WIDTH_RE = render_diagram.BODY_WIDTH_RE
 WIRES_RE = re.compile(r"\bwires\s*\(", re.IGNORECASE)
 
 # Asset-loading references: src/href attributes and CSS url()/@import.
-ATTR_URL_RE = re.compile(r"(?:src|href)\s*=\s*[\"']([^\"']+)[\"']", re.IGNORECASE)
+# A src= attribute fetches a resource on any element. For href= the tag
+# matters: <link>, <base> and friends fetch, but an ordinary <a href> is
+# a hyperlink that loads nothing until the reader clicks it, so it is
+# collected for the local-asset check yet is never a remote offender.
+SRC_URL_RE = re.compile(r"(?:src)\s*=\s*[\"']([^\"']+)[\"']", re.IGNORECASE)
+TAG_HREF_RE = re.compile(
+    r"<([a-zA-Z][\w:-]*)\b[^>]*?\bhref\s*=\s*[\"']([^\"']+)[\"']",
+    re.IGNORECASE,
+)
 CSS_URL_RE = re.compile(r"url\(\s*[\"']?\s*([^)\"']+)", re.IGNORECASE)
 CSS_IMPORT_RE = re.compile(r"@import\s+(?:url\()?\s*[\"']?\s*(\S+)", re.IGNORECASE)
 REMOTE_PREFIXES = ("http://", "https://", "//")
@@ -91,8 +101,8 @@ def _require(condition, message):
 
 def _asset_references(html):
     """Every URL an asset could load from: src/href attributes and CSS."""
-    urls = []
-    urls.extend(ATTR_URL_RE.findall(html))
+    urls = list(SRC_URL_RE.findall(html))
+    urls.extend(url for _, url in TAG_HREF_RE.findall(html))
     urls.extend(CSS_URL_RE.findall(html))
     urls.extend(CSS_IMPORT_RE.findall(html))
     return urls
@@ -153,7 +163,7 @@ def check_arrow_sides(html):
         {
             value
             for value in SIDE_VALUE_RE.findall(html)
-            if value.lower() not in VALID_SIDES
+            if value not in VALID_SIDES
         }
     )
     _require(
@@ -162,16 +172,33 @@ def check_arrow_sides(html):
         + ", ".join(f'"{v}"' for v in bad)
         + "; fromSide and toSide accept only "
         + ", ".join(VALID_SIDES)
-        + " - a diagonal such as \"top-left\" is not a side and would "
-        "draw the wrong arrow",
+        + " exactly as written - a diagonal such as \"top-left\" is not "
+        "a side and would draw the wrong arrow",
     )
 
 
 def check_no_remote_assets(html):
-    """Reject any remote script, stylesheet or asset reference."""
+    """Reject any remote script, stylesheet or asset reference.
+
+    An ordinary <a href="https://..."> is a hyperlink, not a load: the
+    browser fetches nothing for it, so remote links in the prose pass.
+    src= on any element, href= on elements that load resources (link,
+    base, ...), CSS url() and @import all fetch and are rejected when
+    remote.
+    """
     offenders = [
         url
-        for url in _asset_references(html)
+        for url in SRC_URL_RE.findall(html)
+        if url.lower().startswith(REMOTE_PREFIXES)
+    ]
+    offenders += [
+        url
+        for tag, url in TAG_HREF_RE.findall(html)
+        if tag.lower() != "a" and url.lower().startswith(REMOTE_PREFIXES)
+    ]
+    offenders += [
+        url
+        for url in CSS_URL_RE.findall(html) + CSS_IMPORT_RE.findall(html)
         if url.lower().startswith(REMOTE_PREFIXES)
     ]
     _require(
@@ -255,13 +282,14 @@ def check_png(png_path, declared_width):
 
 
 def check_fresh_render(html_path, png_path, name, candidate_dims):
-    """Re-render into a temporary directory and require matching dimensions."""
+    """Re-render into a temporary directory and require matching bytes."""
     try:
         with tempfile.TemporaryDirectory(prefix="eval-verify-") as tmp:
             fresh = render_diagram.render(
                 html_path, Path(tmp) / f"{name}.png", scale=EXPECTED_SCALE
             )
             fresh_dims = render_diagram.png_dimensions(fresh)
+            fresh_sha = hashlib.sha256(fresh.read_bytes()).hexdigest()
     except render_diagram.RenderError as exc:
         raise VerifyError(
             f"the fresh re-render of {html_path} failed: {exc}"
@@ -272,6 +300,15 @@ def check_fresh_render(html_path, png_path, name, candidate_dims):
         f"candidate PNG is {candidate_dims[0]}x{candidate_dims[1]} px; the "
         "committed image is stale or was not produced from this source, "
         "re-render with python3 scripts/render_diagram.py <source>",
+    )
+    candidate_sha = hashlib.sha256(png_path.read_bytes()).hexdigest()
+    _require(
+        candidate_sha == fresh_sha,
+        f"the fresh re-render is {fresh_dims[0]}x{fresh_dims[1]} px like the "
+        "candidate PNG, but the PNG content differs even though the "
+        "dimensions match; the committed image is stale or was not produced "
+        "from this source, re-render with "
+        "python3 scripts/render_diagram.py <source>",
     )
     return fresh_dims
 
