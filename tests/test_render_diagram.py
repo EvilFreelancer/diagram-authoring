@@ -10,6 +10,7 @@ binary exists on this machine.
 import contextlib
 import io
 import os
+import shutil
 import struct
 import subprocess
 import tempfile
@@ -519,6 +520,86 @@ class RealRenderTests(unittest.TestCase):
             "the smoke test must render into a temporary directory, never onto "
             "the committed reference PNG",
         )
+
+
+class RealArrowSideTests(unittest.TestCase):
+    """A real Chromium proves diagram.js rejects an unsupported arrow side.
+
+    diagram.js anchors an arrowhead on one of four sides only. A diagonal
+    such as "top-left" used to fall back to a default silently, so the
+    arrows came out wrong while the render still reported success. The
+    browser now throws inside wires(), settle() never stamps data-height,
+    and the renderer's DOM-dump pass fails with the "no data-height"
+    error. The four valid sides must still render. This is the executable
+    counterpart to the static check in evals/verify.py.
+
+    Like RealRenderTests it starts a browser and skips itself when none is
+    installed.
+    """
+
+    CSS = ROOT / "assets" / "diagram.css"
+    JS = ROOT / "assets" / "diagram.js"
+
+    TEMPLATE = (
+        '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+        '<link rel="stylesheet" href="diagram.css">'
+        '<script src="diagram.js"></script></head>'
+        '<body style="--width: 400px">'
+        '<div class="box blue" id="a" style="width:120px;height:60px">A</div>'
+        '<div class="box green" id="b" style="width:120px;height:60px;'
+        'margin-top:80px">B</div>'
+        "<script>wires([{from: \"#a\", to: \"#b\", %s}]);</script>"
+        "</body></html>"
+    )
+
+    def setUp(self):
+        try:
+            render_diagram.resolve_browser()
+        except render_diagram.RenderError:
+            self.skipTest("no Chromium or Chrome binary on this machine")
+
+    def write_diagram(self, tmp, sides):
+        # Copy the real assets beside the source so the page loads the very
+        # diagram.js under test, exactly as a candidate output directory does.
+        shutil.copy(self.CSS, Path(tmp) / "diagram.css")
+        shutil.copy(self.JS, Path(tmp) / "diagram.js")
+        source = Path(tmp) / "diagram.html"
+        source.write_text(self.TEMPLATE % sides, encoding="utf-8")
+        return source
+
+    def test_invalid_diagonal_side_fails_the_render(self):
+        for sides in (
+            'fromSide: "top-left"',
+            'toSide: "top-right"',
+            'fromSide: "bottom-left", toSide: "bottom-right"',
+        ):
+            with self.subTest(sides=sides):
+                with tempfile.TemporaryDirectory() as tmp:
+                    source = self.write_diagram(tmp, sides)
+                    output = Path(tmp) / "diagram.png"
+                    with self.assertRaises(render_diagram.RenderError) as ctx:
+                        render_diagram.render(source, output, scale=2)
+                    # The throw inside wires() means data-height is never
+                    # stamped, so the DOM-dump pass is what fails.
+                    self.assertIn("data-height", str(ctx.exception))
+                    self.assertFalse(
+                        output.exists(),
+                        "an invalid side must not leave a rendered PNG behind",
+                    )
+
+    def test_each_valid_side_renders(self):
+        for side in ("top", "right", "bottom", "left"):
+            with self.subTest(side=side):
+                with tempfile.TemporaryDirectory() as tmp:
+                    source = self.write_diagram(
+                        tmp, f'fromSide: "{side}", toSide: "{side}"'
+                    )
+                    output = Path(tmp) / "diagram.png"
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        render_diagram.render(source, output, scale=2)
+                    width, height = render_diagram.png_dimensions(output)
+                    self.assertEqual(width, 800)  # 400 CSS px at scale 2
+                    self.assertGreater(height, 0)
 
 
 if __name__ == "__main__":

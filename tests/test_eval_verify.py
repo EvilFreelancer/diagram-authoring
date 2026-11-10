@@ -228,6 +228,84 @@ class CyrillicTests(unittest.TestCase):
             self.assertTrue(lines)
 
 
+class ArrowSideTests(unittest.TestCase):
+    """The verifier rejects fromSide/toSide values diagram.js cannot honor.
+
+    diagram.js anchors an arrowhead on one of four sides only (top, right,
+    bottom, left). A diagonal such as "top-left" used to fall back silently
+    to a default side, so the arrows came out wrong while the render still
+    "succeeded". The verifier now refuses those values statically, before
+    any browser is started, with a message naming the bad value.
+    """
+
+    def _html_with_sides(self, from_side, to_side):
+        return VALID_HTML.replace(
+            "wires([]);",
+            'wires([{ from: "#a", to: "#b", '
+            f'fromSide: "{from_side}", toSide: "{to_side}" }}]);',
+        )
+
+    def test_diagonal_from_side_is_rejected(self):
+        html = self._html_with_sides("top-left", "top")
+        with tempfile.TemporaryDirectory() as tmp:
+            out = make_candidate(tmp, html=html)
+            with self.assertRaisesRegex(verify.VerifyError, "top-left"):
+                run_verify(out)
+
+    def test_diagonal_to_side_is_rejected(self):
+        html = self._html_with_sides("right", "top-right")
+        with tempfile.TemporaryDirectory() as tmp:
+            out = make_candidate(tmp, html=html)
+            with self.assertRaisesRegex(verify.VerifyError, "top-right"):
+                run_verify(out)
+
+    def test_each_diagonal_combination_is_rejected(self):
+        for side in (
+            "top-left",
+            "top-right",
+            "bottom-left",
+            "bottom-right",
+            "left-top",
+            "right-bottom",
+        ):
+            with self.subTest(side=side):
+                html = self._html_with_sides(side, "top")
+                with tempfile.TemporaryDirectory() as tmp:
+                    out = make_candidate(tmp, html=html)
+                    with self.assertRaisesRegex(verify.VerifyError, side):
+                        run_verify(out)
+
+    def test_each_valid_direction_is_accepted(self):
+        for side in ("top", "right", "bottom", "left"):
+            with self.subTest(side=side):
+                html = self._html_with_sides(side, side)
+                with tempfile.TemporaryDirectory() as tmp:
+                    out = make_candidate(tmp, html=html)
+                    lines = run_verify(out)
+                    self.assertTrue(all(l.startswith("PASS") for l in lines))
+
+    def test_missing_sides_default_and_pass(self):
+        # An arrow with no fromSide/toSide is legal: diagram.js defaults to
+        # right and left. Only an explicit bad value is refused.
+        html = VALID_HTML.replace(
+            "wires([]);", 'wires([{ from: "#a", to: "#b" }]);'
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            out = make_candidate(tmp, html=html)
+            lines = run_verify(out)
+            self.assertTrue(all(l.startswith("PASS") for l in lines))
+
+    def test_error_names_the_allowed_directions(self):
+        html = self._html_with_sides("top-left", "top")
+        with tempfile.TemporaryDirectory() as tmp:
+            out = make_candidate(tmp, html=html)
+            with self.assertRaises(verify.VerifyError) as ctx:
+                run_verify(out)
+        message = str(ctx.exception)
+        for direction in ("top", "right", "bottom", "left"):
+            self.assertIn(direction, message)
+
+
 class PngContractTests(unittest.TestCase):
     def test_width_mismatch_is_rejected(self):
         # The HTML declares --width: 1000px, so the PNG must be 2000 wide.

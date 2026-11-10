@@ -47,7 +47,10 @@ your job is only to produce the diagram.
 
 ## Output contract (mandatory)
 
-Produce exactly two files in `{{OUTPUT_DIR}}`, sharing one stem:
+Produce exactly two **deliverables** in `{{OUTPUT_DIR}}`, sharing one stem: the
+HTML source and the PNG. Copied helper assets (`diagram.css`, `diagram.js`) may
+also sit in the directory; they are required support for the HTML, not extra
+deliverables, and are not counted against the two.
 
 1. `<stem>.html` — the editable diagram source. It must:
    - declare its width inline on the body, e.g.
@@ -74,12 +77,17 @@ Use `agent-turn` as the stem unless the case file names another.
   diagram service, no network fetch of assets.
 - **Editable source.** The HTML is the deliverable, not a screenshot of some
   other tool's canvas. Hand-author the markup.
-- **Inspect your own output.** After rendering, open or read the PNG and check
-  it: is the meaning of the brief captured? Is the reading order clear? Is any
-  text clipped or overflowing its box? Do any boxes or arrows collide or
-  overlap? Do arrows point the right way and connect the right things? Does
-  color carry consistent meaning? Fix the HTML and render again until it is
-  genuinely readable — do not ship the first draft unchecked.
+- **Inspect your own output.** After every render, open the final PNG itself
+  with an image-capable tool and look at it: is the meaning of the brief
+  captured? Is the reading order clear? Is any text clipped or overflowing its
+  box? Do any boxes or arrows collide or overlap? Does any label sit on a box
+  border or on a wire? Do arrows point the right way and connect the right
+  things? Does color carry consistent meaning? A DOM dump, a canvas preview, an
+  HTML screenshot or reading the source is not a substitute for opening the
+  PNG. Any edit to the HTML, CSS or JS invalidates the PNG, so render again
+  after each fix and inspect the new image until it is genuinely readable; do
+  not ship the first draft unchecked, and do not ship a PNG that predates your
+  last edit.
 
 ## Report back
 

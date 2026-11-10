@@ -40,6 +40,12 @@
   }
 
   function anchor(rect, side, shift, origin) {
+    const allowed = ["left", "top", "right", "bottom"];
+    if (!allowed.includes(side)) {
+      throw new Error(
+        `diagram: invalid side "${side}" - use one of ${allowed.join(", ")}`,
+      );
+    }
     const s = shift || 0;
     const x0 = rect.left - origin.left;
     const y0 = rect.top - origin.top;

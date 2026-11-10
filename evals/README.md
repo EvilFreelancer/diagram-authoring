@@ -22,6 +22,12 @@ brief, the output contract, and how the result is judged.
 - `verify.py` — a standard-library CLI that decides whether one output directory
   satisfies the output contract.
 
+The output contract is **two deliverables** per run: the HTML source and the
+PNG, sharing one stem. Copied helper assets (`diagram.css`, `diagram.js`) may
+also sit in the output directory; the HTML needs them to render, so they are
+support files, not deliverables, and the verifier does not count them against
+the two.
+
 ## Procedure
 
 For **each** model+skill combination you want to compare:

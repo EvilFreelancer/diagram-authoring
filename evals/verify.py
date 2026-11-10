@@ -69,6 +69,16 @@ COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 
 LOCAL_ASSETS = ("diagram.css", "diagram.js")
 
+# diagram.js anchors an arrowhead on one of four sides only. A diagonal
+# such as "top-left" is not a side: the browser used to fall back to a
+# default silently and drew the wrong arrow, so the verifier refuses any
+# fromSide/toSide value outside this set before starting a browser.
+VALID_SIDES = ("top", "right", "bottom", "left")
+SIDE_VALUE_RE = re.compile(
+    r"""(?:fromSide|toSide)\s*:\s*["']([^"']*)["']""",
+    re.IGNORECASE,
+)
+
 
 class VerifyError(RuntimeError):
     """A contract violation with a message the operator can act on."""
@@ -128,6 +138,33 @@ def check_html_contract(html):
         "no arrows) so the height is measured and arrows are drawn",
     )
     return int(width_match.group(1))
+
+
+def check_arrow_sides(html):
+    """Reject any fromSide/toSide value that is not one of the four sides.
+
+    diagram.js anchors an arrowhead on top, right, bottom or left only. A
+    diagonal such as "top-left" is not a side and used to fall back to a
+    default silently, drawing the wrong arrow while the render still
+    reported success. Fail the objective gate here, before a browser runs,
+    naming each offending value.
+    """
+    bad = sorted(
+        {
+            value
+            for value in SIDE_VALUE_RE.findall(html)
+            if value.lower() not in VALID_SIDES
+        }
+    )
+    _require(
+        not bad,
+        "the HTML uses arrow side value(s) "
+        + ", ".join(f'"{v}"' for v in bad)
+        + "; fromSide and toSide accept only "
+        + ", ".join(VALID_SIDES)
+        + " - a diagonal such as \"top-left\" is not a side and would "
+        "draw the wrong arrow",
+    )
 
 
 def check_no_remote_assets(html):
@@ -249,6 +286,11 @@ def verify(output_dir, name="agent-turn", skip_render=False):
     lines.append(
         f"PASS body declares --width: {declared_width}px and the source "
         "calls wires(...)"
+    )
+
+    check_arrow_sides(html)
+    lines.append(
+        "PASS every fromSide/toSide is one of " + ", ".join(VALID_SIDES)
     )
 
     check_no_remote_assets(html)

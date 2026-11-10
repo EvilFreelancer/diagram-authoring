@@ -69,7 +69,7 @@ the element matching `to` (any CSS selector; a missing element throws):
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `from`, `to` | required | selectors of the two elements |
-| `fromSide`, `toSide` | `right`, `left` | `top` / `right` / `bottom` / `left`, the side the wire leaves or enters |
+| `fromSide`, `toSide` | `right`, `left` | the side the wire leaves or enters: `top`, `right`, `bottom` or `left` only. A diagonal such as `top-left` or `bottom-right` is **not** a side and throws; there is no corner anchor |
 | `color` | `blue` | a palette name (`ink blue green gray amber purple red`) or a CSS color for the line; only palette names get an arrowhead - an arbitrary CSS color draws the line with **no arrowhead**, so use a named palette color whenever an arrowhead is needed |
 | `route` | `elbow` | `straight` or `elbow`; elbow runs along the first side's axis, turns, and finishes along the second's |
 | `bend` | `0.5` | 0..1, moves the elbow turn nearer the start or the end, so parallel elbows do not overlap. Applies only when both ends use parallel sides (both horizontal or both vertical); a mixed-axis L-shaped wire has a fixed corner and ignores `bend` |
@@ -105,12 +105,23 @@ A compact example:
 
 ## Output verification
 
-After every render:
+Any edit to the HTML, CSS or JS invalidates the PNG on disk, so rerender
+before you look at anything. Then, after every render:
 
-1. Open the PNG and look at it. Text clipped by a box, a wire crossing a
-   label, or two boxes touching are defects the renderer cannot see.
+1. Open the final PNG itself with an image-capable tool and look at it. A DOM
+   dump, a canvas preview, an HTML screenshot or reading the source is not a
+   substitute: only the PNG shows what the browser drew. Text clipped by a box,
+   a label sitting on a box border or on a wire, or two boxes touching are
+   defects the renderer cannot see. Nudge a colliding label clear with
+   `labelShift`.
 2. Check the printed dimensions: width x 2 by the measured height, matching
    what the diagram declares.
 3. Keep the file at most 1 MB (the renderer enforces this; `optipng` helps).
+4. Confirm the shipped PNG is a fresh render of the shipped HTML, not a stale
+   image from before the last fix. With the eval harness, `evals/verify.py`
+   re-renders and compares; without it, render into a temporary path and
+   compare dimensions. A zero exit code or an agent's own "done" proves
+   nothing.
 
-Fix the HTML and rerender. Never ship a PNG you have not looked at.
+Fix the HTML, rerender, and open the new PNG again. Never ship a PNG you have
+not looked at, and never ship one that predates your last edit.

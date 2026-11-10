@@ -19,6 +19,8 @@ python3 evals/verify.py OUTPUT_DIR --name agent-turn
 
 - `<name>.html` and `<name>.png` both exist in the output directory;
 - the HTML declares `--width` inline on the `<body>` and calls `wires(...)`;
+- every `fromSide`/`toSide` is one of `top`, `right`, `bottom`, `left` (a
+  diagonal such as `top-left` is refused, because it would draw a wrong arrow);
 - no remote script, stylesheet, font, or image is referenced;
 - `diagram.css` and `diagram.js` are referenced locally and resolve on disk;
 - visible text carries no Cyrillic (script, style, and comment content is
@@ -33,10 +35,14 @@ visual quality; it is sent back.
 
 ## Visual review checklist (manual)
 
-Open the PNG and answer each item. Record a short note per item, not just a
-check, so runs are comparable. The brief for this case is the agent-turn flow:
-surfaces → session manager → agent (rules/skills, LLM, tools/MCP) → stored
-session → broadcast back → background wake.
+Open the **final PNG itself** with an image-capable tool and answer each item.
+A DOM dump, a canvas preview, an HTML screenshot or reading the source is not a
+substitute: judge only the rendered image, and only the one that is a fresh
+render of the shipped HTML (the objective fresh-render gate above is what rules
+out a stale image). Record a short note per item, not just a check, so runs are
+comparable. The brief for this case is the agent-turn flow: surfaces → session
+manager → agent (rules/skills, LLM, tools/MCP) → stored session → broadcast back
+→ background wake.
 
 1. **Meaning.** Does the diagram actually depict the brief? Every element the
    brief names should be present and connected as the brief describes: the
