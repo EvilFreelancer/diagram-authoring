@@ -78,3 +78,32 @@ Skill development follows RED-GREEN-REFACTOR:
 - independent cross-review checks both the instructions and the implementation, with every finding verified by the orchestrator.
 
 The Coddy repository remains unchanged throughout.
+
+## Evaluation harness
+
+The baseline-versus-skill comparison is kept in the repository under `evals/`
+so that other models and other diagram skills can be measured against the same
+brief and the same contract, not just the one used during development. It is a
+reusable harness, not a one-off test.
+
+- `evals/cases/agent-turn.md` holds the technical brief (a Russian description
+  of the agent-turn flow) that every run receives.
+- `evals/prompt.md` is a self-contained clean-agent template with `{{CASE_PATH}}`,
+  `{{OUTPUT_DIR}}`, and `{{SKILL_PATH}}` placeholders. `{{SKILL_PATH}}` is
+  `NONE` for a baseline run or the root of any candidate skill, so the same
+  template drives a baseline and any skill across models. It forbids reading
+  other skills or any baseline answer and restates the output contract.
+- `evals/rubric.md` separates the objective artifact checks from a six-question
+  visual review (meaning, reading order, clipping, collisions, arrows, color
+  semantics). It carries no reference solution.
+- `evals/verify.py` is a standard-library CLI that enforces the objective half:
+  a same-stem HTML/PNG pair, the inline body `--width` and `wires(...)` call,
+  local `diagram.css`/`diagram.js` that resolve on disk, no remote assets, no
+  Cyrillic in visible text, a valid PNG under 1 MB at twice the declared width,
+  and (unless `--skip-render`) a fresh local re-render whose dimensions match.
+  It imports the renderer by path and always renders into a temporary directory.
+
+Model selection is performed by the host agent that starts each fresh run, so
+the harness calls no provider API and needs no secrets. The procedure (one
+fresh agent per model+skill, a unique output directory, verifier first, then the
+visual rubric) is documented in `evals/README.md`.

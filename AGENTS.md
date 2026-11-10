@@ -23,6 +23,12 @@ diagram-authoring/
 │  ├─ agent-turn.html            # complete reference diagram (source)
 │  └─ agent-turn.png             # rendered reference (generated output)
 ├─ tests/                        # unittest suite, offline except the smoke test
+├─ evals/                        # reusable cross-model/cross-skill eval harness
+│  ├─ cases/agent-turn.md        # the technical brief every eval run receives
+│  ├─ prompt.md                  # clean-agent template ({{CASE_PATH}}/OUTPUT_DIR/SKILL_PATH)
+│  ├─ rubric.md                  # objective checks + visual review checklist
+│  ├─ README.md                  # procedure, commands, results table
+│  └─ verify.py                  # stdlib-only objective verifier (CLI)
 ├─ SKILL.md                      # CANONICAL skill: frontmatter + workflow (repo root)
 ├─ README.md, AGENTS.md, LICENSE, .gitignore
 ```
@@ -75,6 +81,24 @@ manifest shape (TDD: new assertion first, see it fail, then the manifests).
   directory.
 - Keep secrets out of the repository and out of test fixtures.
 
+## Evaluations
+
+`evals/` is a **reusable** harness for comparing models and diagram skills
+against one brief and one output contract; it stays in the repo so any run is
+comparable to any other. Model selection is the host agent's job, so the
+harness calls no provider API and needs no secrets.
+
+- `evals/cases/agent-turn.md` is the brief; `evals/prompt.md` is the clean-agent
+  template (`{{CASE_PATH}}`, `{{OUTPUT_DIR}}`, `{{SKILL_PATH}}` — `NONE` for a
+  baseline, or any candidate skill root); `evals/rubric.md` splits objective
+  checks from a visual review; `evals/verify.py` enforces the objective half.
+- `evals/verify.py` is **standard library only** and imports `render_diagram` by
+  path (anchored on `__file__`), so it runs from any cwd. It renders only into a
+  temporary directory and never overwrites a committed or candidate PNG.
+- Keep the harness free of baseline answers and hints: the rubric states the
+  output contract and the six visual questions, nothing about how the reference
+  example solved the case. See `evals/README.md` for the procedure.
+
 ## Documentation
 
 All technical documentation in this repository is **English**: `SKILL.md`,
@@ -87,6 +111,8 @@ Run all of these before every commit:
 ```bash
 python3 -m unittest discover -s tests -v
 python3 -m py_compile scripts/render_diagram.py
+python3 -m py_compile evals/verify.py
+python3 evals/verify.py examples --name agent-turn   # renders fresh and passes
 python3 -m json.tool .claude-plugin/plugin.json >/dev/null
 python3 -m json.tool .codex-plugin/plugin.json >/dev/null
 python3 -m json.tool .cursor-plugin/plugin.json >/dev/null

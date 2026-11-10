@@ -53,6 +53,29 @@ python3 -m unittest discover -s tests -v
 The suite is offline except one smoke test that renders the reference example
 with a real Chromium and skips itself when no browser binary exists.
 
+## Evaluations
+
+A reusable harness under [`evals/`](evals/) compares how well different models
+and different diagram skills turn one technical brief into a real, editable,
+rendered diagram. It is kept in the repo so any run can be lined up against any
+other. Model selection is done by the host agent that starts each fresh run, so
+the harness calls no provider API and needs no secrets.
+
+Layout: `evals/cases/agent-turn.md` (the brief), `evals/prompt.md` (the
+clean-agent template with `{{CASE_PATH}}`, `{{OUTPUT_DIR}}`, `{{SKILL_PATH}}`),
+`evals/rubric.md` (objective checks plus a visual review), and `evals/verify.py`
+(the objective verifier). See [`evals/README.md`](evals/README.md) for the full
+procedure.
+
+Verify one run's output (renders fresh and checks dimensions match):
+
+```bash
+python3 evals/verify.py runs/<this-run-dir> --name agent-turn
+```
+
+Add `--skip-render` to check the artifacts offline without a browser. The
+verifier's own tests run with the rest of the suite.
+
 ## Install
 
 The repo root is the skill folder: copy or symlink it into your agent's skills

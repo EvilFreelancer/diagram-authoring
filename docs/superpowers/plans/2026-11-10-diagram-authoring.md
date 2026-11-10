@@ -258,6 +258,11 @@ git commit -m "docs: teach complete diagram authoring workflow"
 
 ### Task 5: Clean-agent acceptance and refactor
 
+> Superseded in part by **Task 7: Reusable evaluation harness**, which moves the
+> clean-agent comparison into the repository under `evals/` so it is reusable
+> across models and skills rather than a one-off acceptance run. The intent here
+> stands; the durable form of it is Task 7.
+
 **Files:**
 - Modify only files whose defects the acceptance runs expose.
 
@@ -307,3 +312,74 @@ Expected: tests pass, the new repository contains only intended changes, and Cod
 - [ ] **Step 5: Commit and report**
 
 Commit any review fixes with `fix: address diagram skill review findings`. Report the new skill path, artifact example, clean-agent results, cross-review verdict, test evidence, and the deliberate absence of a catalog entry until publication.
+
+### Task 7: Reusable evaluation harness
+
+The user asked to keep the clean-agent comparison in the repository so that
+other models and other skills can be measured against the same brief and the
+same contract. This task turns the one-off acceptance run of Task 5 into a
+reusable harness under `evals/`, developed test-first.
+
+**Files:**
+- Create: `evals/cases/agent-turn.md`
+- Create: `evals/prompt.md`
+- Create: `evals/rubric.md`
+- Create: `evals/README.md`
+- Create: `evals/verify.py`
+- Create: `tests/test_eval_verify.py`
+- Modify: `README.md`, `AGENTS.md`, this plan, and the design spec
+
+- [x] **Step 1: Write the verifier tests first**
+
+`tests/test_eval_verify.py` uses `unittest` and temporary directories and covers
+the objective contract: a missing HTML/PNG pair, a remote asset, Cyrillic in
+visible text, an unresolved local asset, the committed example passing with
+`--skip-render`, a width mismatch, and a real fresh-render comparison that never
+overwrites the committed reference PNG. It reuses `scripts/render_diagram.png_dimensions`
+and a tiny generated-PNG helper rather than duplicating renderer logic. Observe
+RED before `evals/verify.py` exists.
+
+- [x] **Step 2: Implement the standard-library verifier**
+
+`evals/verify.py` is a CLI (`python3 evals/verify.py OUTPUT_DIR --name agent-turn
+[--skip-render]`) that validates the same-stem pair, the inline body `--width`
+and `wires(...)` call, local `diagram.css`/`diagram.js` resolving on disk, the
+absence of remote assets, the absence of Cyrillic in visible text (ignoring
+script/style/comments), a valid PNG under 1 MB at twice the declared CSS width
+with positive height, and — unless `--skip-render` — a fresh re-render into a
+temporary directory whose dimensions match the candidate. It imports
+`render_diagram` by adding the repository `scripts/` directory to `sys.path`
+based on `__file__`, independent of the current directory, and uses no
+third-party packages. It prints concise `PASS` lines and exits 0, or an
+actionable message to stderr and exit 1. Reach GREEN.
+
+- [x] **Step 3: Write the case, prompt, rubric, and procedure**
+
+`evals/cases/agent-turn.md` holds the exact Russian technical brief.
+`evals/prompt.md` is the self-contained clean-agent template with `{{CASE_PATH}}`,
+`{{OUTPUT_DIR}}`, and `{{SKILL_PATH}}` (the last is `NONE` for a baseline or the
+root of any candidate skill), forbidding other skills and baseline answers and
+requiring editable HTML, a real PNG, English labels, local rendering, no external
+service, visual inspection, and returned paths and dimensions. `evals/rubric.md`
+splits objective artifact checks from a six-question visual review and carries no
+baseline solution. `evals/README.md` gives the exact procedure (one fresh agent
+per model+skill, a unique output directory, no baseline answers, verifier first,
+then the visual rubric), baseline and candidate commands, a results table
+template, and the note that model selection is the host agent's job, so no
+provider API or secrets are needed.
+
+- [x] **Step 4: Document the harness and validate**
+
+Add the eval commands and layout to `README.md` and `AGENTS.md`, and a concise
+eval-harness section to the design spec and this plan, reflecting the added
+requirement without rewriting earlier decisions. Run
+`python3 -m unittest discover -s tests -v`, `python3 -m py_compile evals/verify.py`,
+`python3 evals/verify.py examples --name agent-turn` (renders fresh and passes),
+and `git diff --check`.
+
+- [x] **Step 5: Commit**
+
+```bash
+git add -A
+git commit -m "test: add reusable diagram evaluations"
+```
