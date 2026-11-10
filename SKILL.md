@@ -44,9 +44,10 @@ working directory.
 7. **Visually inspect the PNG.** Check for clipped text, colliding boxes or
    wires, and mislabeled arrows. A zero exit code proves nothing about how the
    diagram looks.
-8. **Verify the actual PNG dimensions** match the declared width and measured
-   height at 2x, and that the file is at most 1 MB. Fix the HTML and rerender
-   until both hold.
+8. **Verify the rendered PNG.** Confirm the dimensions the renderer prints
+   match the intended output (the declared width and the measured height at
+   2x) and that the file is at most 1 MB. Fix the HTML and rerender until both
+   hold.
 9. **Return both paths**, the HTML and the PNG.
 
 When the target repository has its own documentation asset convention (its own
@@ -76,5 +77,5 @@ checks.
 - Measuring success from the exit code alone.
 
 For layout primitives and every `wires` option see
-[references/authoring.md](references/authoring.md); a complete worked diagram
-is [examples/agent-turn.html](examples/agent-turn.html).
+`<skill>/references/authoring.md`; a complete worked diagram is
+`<skill>/examples/agent-turn.html`.

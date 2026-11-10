@@ -19,7 +19,9 @@ diagram-authoring/
 │  └─ diagram.js                 # wires([...]) arrows + data-height measurement
 ├─ scripts/render_diagram.py     # stdlib-only two-pass Chromium renderer
 ├─ references/authoring.md       # CSS primitives and every wires option
-├─ examples/agent-turn.{html,png}# complete reference diagram (PNG is generated)
+├─ examples/
+│  ├─ agent-turn.html            # complete reference diagram (source)
+│  └─ agent-turn.png             # rendered reference (generated output)
 ├─ tests/                        # unittest suite, offline except the smoke test
 ├─ SKILL.md                      # CANONICAL skill: frontmatter + workflow (repo root)
 ├─ README.md, AGENTS.md, LICENSE, .gitignore

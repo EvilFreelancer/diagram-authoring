@@ -109,6 +109,14 @@ class MetadataContract(unittest.TestCase):
         )
         self.assertIn("displayName", data)
 
+    def test_cursor_manifest_has_no_homepage_or_repository(self):
+        # The sibling convention keeps these keys out of the Cursor manifest.
+        data = json.loads(
+            (ROOT / ".cursor-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+        self.assertNotIn("homepage", data)
+        self.assertNotIn("repository", data)
+
     def test_display_names_follow_the_skill_name(self):
         codex = json.loads(
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
