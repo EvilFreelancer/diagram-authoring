@@ -15,5 +15,12 @@
     "documentation",
     "chromium"
   ],
-  "skills": "./"
+  "skills": "./",
+  "interface": {
+    "displayName": "diagram-authoring",
+    "shortDescription": "Author editable HTML technical diagrams and render verified 2x PNGs with local Chromium.",
+    "developerName": "Pavel Rykov",
+    "category": "Developer Tools",
+    "websiteURL": "https://github.com/EvilFreelancer/diagram-authoring"
+  }
 }

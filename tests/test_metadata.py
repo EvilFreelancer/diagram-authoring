@@ -79,6 +79,46 @@ class MetadataContract(unittest.TestCase):
         )
         self.assertNotIn("category", data)
 
+    def test_claude_manifest_has_no_skills_key(self):
+        data = json.loads(
+            (ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+        self.assertNotIn("skills", data)
+
+    def test_codex_manifest_declares_skills_and_interface(self):
+        data = json.loads(
+            (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(data.get("skills"), "./")
+        interface = data.get("interface")
+        self.assertIsInstance(interface, dict, "Codex manifest needs an interface block")
+        for key in (
+            "displayName",
+            "shortDescription",
+            "developerName",
+            "category",
+            "websiteURL",
+        ):
+            value = interface.get(key)
+            self.assertIsInstance(value, str, f"interface.{key} must be a string")
+            self.assertTrue(value.strip(), f"interface.{key} must not be empty")
+
+    def test_cursor_manifest_has_display_name(self):
+        data = json.loads(
+            (ROOT / ".cursor-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+        self.assertIn("displayName", data)
+
+    def test_display_names_follow_the_skill_name(self):
+        codex = json.loads(
+            (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+        cursor = json.loads(
+            (ROOT / ".cursor-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(codex["interface"]["displayName"], EXPECTED_NAME)
+        self.assertEqual(cursor["displayName"], EXPECTED_NAME)
+
 
 if __name__ == "__main__":
     unittest.main()
