@@ -1,9 +1,10 @@
-"""Offline tests for the standard-library diagram renderer.
+"""Tests for the standard-library diagram renderer.
 
-These tests never start a browser: they cover the pure helpers
+The offline tests never start a browser: they cover the pure helpers
 (read_dimensions, pixel_dimensions, check_size), browser resolution and
-the CLI error paths. The real-render smoke test arrives with the example
-in a later task.
+the CLI error paths. RealRenderTests is the one exception: it renders the
+reference example with a real Chromium and skips itself when no browser
+binary exists on this machine.
 """
 
 import contextlib
@@ -463,6 +464,31 @@ class RenderFlowTests(unittest.TestCase):
                 with contextlib.redirect_stdout(io.StringIO()):
                     render_diagram.render(source, output=output, scale=2)
             self.assertEqual(render_diagram.png_dimensions(output), (2560, 1488))
+
+
+class RealRenderTests(unittest.TestCase):
+    """Render the reference example with a real Chromium.
+
+    This is the only test that starts a browser. It skips itself when no
+    Chromium or Chrome binary exists, so a machine without one still
+    passes the suite.
+    """
+
+    def setUp(self):
+        try:
+            render_diagram.resolve_browser()
+        except render_diagram.RenderError:
+            self.skipTest("no Chromium or Chrome binary on this machine")
+
+    def test_example_renders_at_twice_css_size(self):
+        source = ROOT / "examples" / "agent-turn.html"
+        output = ROOT / "examples" / "agent-turn.png"
+        render_diagram.render(source, output, scale=2)
+        self.assertTrue(output.is_file(), "the renderer wrote no PNG")
+        self.assertLessEqual(output.stat().st_size, 1_000_000)
+        width, height = render_diagram.png_dimensions(output)
+        self.assertEqual(width, 2400)
+        self.assertGreater(height, 0)
 
 
 if __name__ == "__main__":
