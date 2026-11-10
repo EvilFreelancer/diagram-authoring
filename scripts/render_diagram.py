@@ -4,8 +4,9 @@
 Standard library only. The renderer performs two headless passes with a
 throwaway browser profile:
 
-1. Dump the DOM at a generous window size so diagram.js can measure the
-   body and record ``data-height``; read the CSS ``--width`` from the
+1. Dump the DOM at the width the body declares (default 1200) so
+   diagram.js can measure the body and record ``data-height`` at the
+   width the screenshot will use; read the CSS ``--width`` from the
    body and the recorded height out of the dump.
 2. Screenshot the page at exactly those CSS dimensions with the
    requested device-scale factor and an opaque white background.
@@ -21,17 +22,22 @@ Usage:
 import argparse
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
 import re
+import zlib
 from pathlib import Path
 
 MAX_OUTPUT_BYTES = 1_000_000
 DEFAULT_WIDTH = 1200
 DEFAULT_SCALE = 2
-DUMP_WINDOW_SIZE = (1600, 1200)
+# The dump pass measures the height at the declared CSS width and this
+# generous height, so diagram.js measures what the screenshot will show.
+DUMP_WINDOW_HEIGHT = 1200
 BROWSER_TIMEOUT_SECONDS = 120
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 # Flags shared by both passes. --allow-file-access-from-files lets the
 # source load its local diagram.css and diagram.js; the virtual-time
@@ -47,29 +53,40 @@ BASE_FLAGS = [
     "--virtual-time-budget=3000",
 ]
 
-HEIGHT_RE = re.compile(r'data-height=["\'](\d+)["\']')
-WIDTH_RE = re.compile(r'--width\s*:\s*(\d+)px')
+# data-height is stamped by diagram.js on the <html> element and --width
+# is declared on the body's style attribute; anchoring to those tags
+# keeps decoys in scripts, styles and nested elements from being read.
+HTML_HEIGHT_RE = re.compile(r'<html\b[^>]*\bdata-height=["\'](\d+)["\']', re.IGNORECASE)
+BODY_WIDTH_RE = re.compile(
+    r'<body\b[^>]*\bstyle=["\'][^"\']*--width\s*:\s*(\d+)px', re.IGNORECASE
+)
 
 
 class RenderError(RuntimeError):
     """An expected failure with a message the operator can act on."""
 
 
+def declared_width(html):
+    """Return the CSS width declared on the body's style, or DEFAULT_WIDTH."""
+    match = BODY_WIDTH_RE.search(html)
+    return int(match.group(1)) if match else DEFAULT_WIDTH
+
+
 def read_dimensions(dom):
     """Return (css_width, css_height) read from a dumped DOM.
 
     The height must have been recorded by diagram.js (a wires([...])
-    call); the width falls back to DEFAULT_WIDTH when the body does not
-    declare one.
+    call) on the html element; the width is the body's declared
+    --width and falls back to DEFAULT_WIDTH when absent.
     """
-    height_match = HEIGHT_RE.search(dom)
+    height_match = HTML_HEIGHT_RE.search(dom)
     if not height_match:
         raise RenderError(
             "the source recorded no data-height; load diagram.js and call "
             "wires([...]) after the diagram markup (wires([]) when there "
             "are no arrows) so the renderer learns the measured height"
         )
-    width_match = WIDTH_RE.search(dom)
+    width_match = BODY_WIDTH_RE.search(dom)
     width = int(width_match.group(1)) if width_match else DEFAULT_WIDTH
     height = int(height_match.group(1))
     if width <= 0 or height <= 0:
@@ -81,12 +98,50 @@ def read_dimensions(dom):
     return width, height
 
 
+def validate_scale(scale):
+    """Return scale unchanged when it is a positive int, else raise."""
+    if isinstance(scale, bool) or not isinstance(scale, int) or scale <= 0:
+        raise RenderError(f"scale must be a positive integer, got {scale!r}")
+    return scale
+
+
 def pixel_dimensions(css_dimensions, scale):
     """Return the PNG size for CSS dimensions at the given scale."""
-    if not isinstance(scale, int) or scale <= 0:
-        raise RenderError(f"scale must be a positive integer, got {scale!r}")
+    validate_scale(scale)
     width, height = css_dimensions
     return width * scale, height * scale
+
+
+def png_dimensions(path):
+    """Return (width, height) from a PNG's IHDR, or raise RenderError."""
+    try:
+        with open(path, "rb") as handle:
+            header = handle.read(33)  # signature + IHDR length/type/data/crc
+    except OSError as exc:
+        raise RenderError(f"could not read the rendered PNG {path}: {exc}") from exc
+    if len(header) < 33 or not header.startswith(PNG_SIGNATURE):
+        raise RenderError(
+            f"{path} is not a valid PNG: the signature or the IHDR chunk "
+            "is missing or truncated; the browser did not write a usable "
+            "screenshot"
+        )
+    if header[12:16] != b"IHDR":
+        raise RenderError(
+            f"{path} is not a valid PNG: the first chunk is "
+            f"{header[12:16]!r}, not IHDR"
+        )
+    ihdr_length = struct.unpack(">I", header[8:12])[0]
+    if ihdr_length < 13:
+        raise RenderError(f"{path} is not a valid PNG: the IHDR chunk is too short")
+    crc_stored = struct.unpack(">I", header[29:33])[0]
+    if zlib.crc32(header[12:29]) & 0xFFFFFFFF != crc_stored:
+        raise RenderError(f"{path} is not a valid PNG: the IHDR CRC does not match")
+    width, height = struct.unpack(">II", header[16:24])
+    if width <= 0 or height <= 0:
+        raise RenderError(
+            f"{path} declares a non-positive PNG size {width}x{height}"
+        )
+    return width, height
 
 
 def check_size(size_bytes):
@@ -235,20 +290,38 @@ def render(source, output=None, chrome=None, scale=DEFAULT_SCALE):
             f"source must be an existing regular file, got {source}; "
             "check the path (a directory does not render)"
         )
-    if not isinstance(scale, int) or scale <= 0:
-        raise RenderError(f"scale must be a positive integer, got {scale!r}")
-    browser = resolve_browser(chrome)
-    check_fonts()
+    validate_scale(scale)
 
     if output is None:
         output = source.with_suffix(".png")
     output = Path(output)
+    if output.is_dir():
+        raise RenderError(
+            f"the output {output} is an existing directory, not a file; "
+            "name the .png file to write"
+        )
+    if output.suffix.lower() != ".png":
+        raise RenderError(
+            f"the output must name a .png file, got {output}; "
+            "Chromium writes PNG screenshots"
+        )
+
+    browser = resolve_browser(chrome)
+    check_fonts()
+
     if output.parent != Path(""):
         try:
             output.parent.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
             raise RenderError(f"could not create the output folder {output.parent}: {exc}") from exc
+    try:
+        source_text = source.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        raise RenderError(f"could not read the source {source}: {exc}") from exc
 
+    # Measure the height at the width the screenshot will use, so
+    # responsive content cannot be clipped between the two passes.
+    declared = declared_width(source_text)
     uri = _source_uri(source)
     with tempfile.TemporaryDirectory(prefix="diagram-render-") as profile_root:
         dump_profile = os.path.join(profile_root, "dump")
@@ -259,7 +332,7 @@ def render(source, output=None, chrome=None, scale=DEFAULT_SCALE):
             + BASE_FLAGS
             + [
                 f"--user-data-dir={dump_profile}",
-                "--window-size={},{}".format(*DUMP_WINDOW_SIZE),
+                f"--window-size={declared},{DUMP_WINDOW_HEIGHT}",
                 "--dump-dom",
                 uri,
             ],
@@ -272,6 +345,14 @@ def render(source, output=None, chrome=None, scale=DEFAULT_SCALE):
             )
         css_width, css_height = read_dimensions(dump)
         pixel_width, pixel_height = pixel_dimensions((css_width, css_height), scale)
+
+        # Drop any stale or foreign file now, so a browser that exits 0
+        # without writing cannot leave an earlier artifact accepted.
+        try:
+            if output.exists():
+                output.unlink()
+        except OSError as exc:
+            raise RenderError(f"could not clear the output {output}: {exc}") from exc
 
         _run_browser(
             [browser]
@@ -290,12 +371,20 @@ def render(source, output=None, chrome=None, scale=DEFAULT_SCALE):
         raise RenderError(
             f"the browser reported success but wrote no screenshot at {output}"
         )
+    actual = png_dimensions(output)
+    if actual != (pixel_width, pixel_height):
+        raise RenderError(
+            f"{output} is {actual[0]}x{actual[1]} px but the diagram "
+            f"declared {css_width}x{css_height} CSS px at scale {scale}, "
+            f"which needs {pixel_width}x{pixel_height} px"
+        )
 
     optimize(output)
+    actual = png_dimensions(output)
 
     size = output.stat().st_size
     check_size(size)
-    print(f"{output}: {pixel_width}x{pixel_height}, {size} bytes")
+    print(f"{output}: {actual[0]}x{actual[1]}, {size} bytes")
     return output
 
 
@@ -305,7 +394,7 @@ def optimize(output):
     if not optipng:
         return
     try:
-        subprocess.run(
+        result = subprocess.run(
             [optipng, "-quiet", "-o2", str(output)],
             capture_output=True,
             text=True,
@@ -313,7 +402,15 @@ def optimize(output):
         )
     except (OSError, subprocess.TimeoutExpired):
         # Compression is a bonus; the uncompressed PNG already passed.
-        pass
+        return
+    if result.returncode != 0:
+        # optipng rewrites atomically, so a failed run leaves the valid
+        # unoptimized PNG in place; render() re-validates it either way.
+        print(
+            f"note: optipng exited {result.returncode}; keeping the "
+            "unoptimized PNG",
+            file=sys.stderr,
+        )
 
 
 def build_parser():
