@@ -1,0 +1,26 @@
+{
+  "name": "diagram-authoring",
+  "version": "1.0.0",
+  "description": "Use when the user asks to create, draw, render, or update a technical diagram, architecture scheme, process flow, lifecycle, or system map from supplied information and expects editable source plus a finished image.",
+  "author": {
+    "name": "Pavel Rykov",
+    "email": "paul@drteam.rocks"
+  },
+  "homepage": "https://github.com/EvilFreelancer/diagram-authoring",
+  "repository": "https://github.com/EvilFreelancer/diagram-authoring",
+  "license": "MIT",
+  "keywords": [
+    "diagram",
+    "architecture",
+    "documentation",
+    "chromium"
+  ],
+  "skills": "./",
+  "interface": {
+    "displayName": "diagram-authoring",
+    "shortDescription": "Author editable HTML technical diagrams and render verified 2x PNGs with local Chromium.",
+    "developerName": "Pavel Rykov",
+    "category": "Developer Tools",
+    "websiteURL": "https://github.com/EvilFreelancer/diagram-authoring"
+  }
+}

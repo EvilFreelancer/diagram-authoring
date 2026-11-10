@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>A Coddy agent turn</title>
+    <link rel="stylesheet" href="../assets/diagram.css" />
+    <script src="../assets/diagram.js"></script>
+  </head>
+  <body style="--width: 1200px">
+    <h1>A Coddy agent turn</h1>
+    <p class="lead">
+      One prompt travels from a surface through the session manager and the
+      agent loop to the stored session, and a finished background task can wake
+      the agent for another turn.
+    </p>
+
+    <div class="panel">
+      <div class="title">1. A prompt arrives</div>
+      <div class="row" style="justify-content: space-between">
+        <div class="box amber b" id="webui">
+          Web UI
+          <small>composer, POST /v1/responses</small>
+        </div>
+        <div class="box amber b" id="tg">
+          Telegram
+          <small>bot, gateway adapter</small>
+        </div>
+        <div class="box amber b" id="cli">
+          Console
+          <small>terminal, ACP client</small>
+        </div>
+      </div>
+      <div class="row" style="justify-content: center; gap: 90px; margin-top: 16px">
+        <div class="box core b" id="sess">
+          Session manager
+          <small>one store, one turn lock per session</small>
+        </div>
+        <div class="box purple b" id="cast">
+          Broadcast
+          <small>the answer streams to every surface</small>
+        </div>
+      </div>
+    </div>
+
+    <div class="sep"></div>
+
+    <div class="panel">
+      <div class="title">2. The agent loop runs</div>
+      <div class="row" style="align-items: center; justify-content: center; gap: 60px">
+        <div class="box amber b" id="rules">
+          Rules &amp; skills
+          <small>operator-authored, read every turn</small>
+        </div>
+        <div class="box core b" id="agent" style="min-width: 150px; text-align: center">
+          Agent
+          <small>ReAct loop, tool wiring</small>
+        </div>
+        <div class="stack" style="gap: 14px">
+          <div class="box core b" id="llm">
+            LLM provider
+            <small>completion and stream</small>
+          </div>
+          <div class="box blue b" id="tools">
+            Tools
+            <small>read, edit, run_command</small>
+          </div>
+          <div class="box purple b" id="mcp">
+            MCP servers
+            <small>shared pool, per workspace</small>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sep"></div>
+
+    <div class="panel">
+      <div class="title">3. The turn is stored</div>
+      <div class="row" style="justify-content: center; gap: 90px">
+        <div class="box gray b dashed" id="wake" style="min-width: 200px">
+          Background wake
+          <small>notify_on_finish ends a task</small>
+        </div>
+        <div class="box green b" id="stored" style="min-width: 200px">
+          Stored session
+          <small>messages.json, transcript</small>
+        </div>
+      </div>
+    </div>
+
+    <div class="sep"></div>
+
+    <div class="legend">
+      <span class="amber">from the person or the outside</span>
+      <span class="core">what Coddy runs on its own</span>
+      <span class="blue">what Coddy writes or derives</span>
+      <span class="purple">what merges several things into one</span>
+      <span class="green">what is kept as it is</span>
+    </div>
+
+    <script>
+      wires([
+        { from: "#webui", to: "#sess", fromSide: "bottom", toSide: "top", color: "amber", bend: 0.4 },
+        { from: "#tg", to: "#sess", fromSide: "bottom", toSide: "top", color: "amber" },
+        { from: "#cli", to: "#sess", fromSide: "bottom", toSide: "top", color: "amber", bend: 0.6 },
+        { from: "#sess", to: "#agent", fromSide: "bottom", toSide: "top", color: "blue", label: "runs a turn" },
+        { from: "#agent", to: "#rules", fromSide: "left", toSide: "right", color: "amber", label: "reads" },
+        { from: "#agent", to: "#llm", color: "blue", label: "asks" },
+        { from: "#agent", to: "#tools", color: "blue", label: "calls" },
+        { from: "#agent", to: "#mcp", color: "purple", label: "calls" },
+        { from: "#agent", to: "#stored", fromSide: "bottom", toSide: "top", color: "green", label: "persists", bend: 0.6 },
+        { from: "#stored", to: "#cast", fromSide: "top", toSide: "right", color: "purple", label: "streams back" },
+        { from: "#cast", to: "#webui", fromSide: "top", toSide: "bottom", color: "purple", bend: 0.25 },
+        { from: "#cast", to: "#tg", fromSide: "top", toSide: "bottom", color: "purple", bend: 0.4 },
+        { from: "#cast", to: "#cli", fromSide: "top", toSide: "bottom", color: "purple", bend: 0.3 },
+        { from: "#wake", to: "#agent", fromSide: "top", toSide: "left", color: "amber", dash: true, label: "wakes", toShift: 0 },
+      ]);
+    </script>
+  </body>
+</html>
